@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Prototype</title>
+</head>
+<body>
+  <canvas id="canvas" width="600" height="480"></canvas>
+  <h1>Simple Game AI Test</h1>
+  <p>Move the blue square using the arrow keys</p>
+  <p>If the green square turns orange it is trying to reach you. If it turns red it is attacking.</p>
+  <p>The red box represents the AI's zone in which it will look for the player.</p>
+  <script>
+'use strict'
+
+const canvas = document.getElementById('canvas')
+const ctx = canvas.getContext('2d')
+const width = 600
+const height = 480
+
+const KEYCODES = {
+  'ARROW_LEFT': 37,
+  'ARROW_UP': 38,
+  'ARROW_RIGHT': 39,
+  'ARROW_DOWN': 40
+}
+const keys = {}
+const entities = []
+
+const handleKeyDown = (event) => {
+  keys[event.keyCode] = true
+}
+const handleKeyUp = (event) => {
+  delete keys[event.keyCode]
+}
+
+window.addEventListener('keydown', handleKeyDown, true)
+window.addEventListener('keyup', handleKeyUp, true)
+
+const player = {
+  name: 'player',
+  x: 10,
+  y: 10,
+  moveSpeed: 50,
+  tick: function (time, dt) {
+    if (keys[KEYCODES.ARROW_LEFT]) {
+      // Left
+      this.x = this.x - (this.moveSpeed * dt);
+    }
+    if (keys[KEYCODES.ARROW_UP]) {
+      // Up
+      this.y = this.y - (this.moveSpeed * dt);
+    }
+    if (keys[KEYCODES.ARROW_RIGHT]) {
+      // Right
+      this.x = this.x + (this.moveSpeed * dt);
+    }
+    if (keys[KEYCODES.ARROW_DOWN]) {
+      // Down
+      this.y = this.y + (this.moveSpeed * dt);
+    }
+
+    this.x = Math.max(5, Math.min(width - 5, this.x))
+    this.y = Math.max(5, Math.min(height - 5, this.y))
+
+    ctx.fillStyle = '#00cccc'
+    ctx.fillRect(this.x -5, this.y -5, 10, 10)
+  }
+}
+
+entities.push(player)
+
+const distance2d = (p1, p2) => {
+  return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2))
+}
+
+entities.push({
+  name: 'ai',
+  x: width / 2,
+  y: height /2,
+  target: null,
+  zone: {
+    min: {
+      x: 100,
+      y: 100
+    },
+    max: {
+      x: width - 100,
+      y: height - 100
+    }
+  },
+  player: player,
+  weapon: {
+    range: 20
+  },
+  moveSpeed: 40,
+  nextThink: 0,
+  isAttacking: false,
+  tick: function(time, dt) {
+    // If player in zone, set the target to the player
+    if (this.player.x >= this.zone.min.x &&
+      this.player.y >= this.zone.min.y &&
+      this.player.x <= this.zone.max.x &&
+      this.player.y <= this.zone.max.y) {
+      this.target = this.player
+    } else if (!this.target || this.target === this.player || distance2d(this, this.target) < 1) {
+      // If we don't have a target
+      // Or if the player is the target but the player is not in the zone
+      // Or we have reached our target
+      // Set the target to a new random location
+      this.target = {
+        x: Math.floor(Math.random() * (this.zone.max.x - this.zone.min.x)) + this.zone.min.x,
+        y: Math.floor(Math.random() * (this.zone.max.y - this.zone.min.y)) + this.zone.min.y
+      }
+    }
+
+    // If the player is the target and we are close enough to attack, set our state to attacking
+    const distanceToTarget = distance2d(this, this.target)
+    if (this.target === this.player && distanceToTarget < this.weapon.range) {
+      this.isAttacking = true
+    } else {
+      this.isAttacking = false
+    }
+
+
+    // Move towards the target
+
+    // Get move direction as normalised vector values
+    const directionX = (this.target.x - this.x) / distanceToTarget
+    const directionY = (this.target.y - this.y) / distanceToTarget
+
+    this.x = Math.max(5, Math.min(width - 5, this.x + (directionX * this.moveSpeed * dt)))
+    this.y = Math.max(5, Math.min(width - 5, this.y + (directionY * this.moveSpeed * dt)))
+
+    // Draw Zone
+    ctx.strokeStyle = '#ff0000'
+    ctx.strokeRect(this.zone.min.x, this.zone.min.y, this.zone.max.x - this.zone.min.x, this.zone.max.y - this.zone.min.y)
+
+    // Draw AI
+    if (this.isAttacking) {
+      ctx.fillStyle = '#ff0000'
+    } else if (this.target === this.player) {
+      ctx.fillStyle = '#ff4444'
+    } else {
+      ctx.fillStyle = '#00cc00'
+    }
+    ctx.fillRect(this.x - 5, this.y - 5, 10, 10)
+  }
+})
+
+let lastFrameStartTime = performance.now() / 1000
+const gameLoop = () => {
+  const frameStartTime = performance.now() / 1000
+  const dt = Math.min(0.1, frameStartTime - lastFrameStartTime)
+  lastFrameStartTime = frameStartTime
+
+  ctx.fillStyle = '#333322'
+  ctx.fillRect(0, 0, width, height)
+
+  entities.forEach((entity) => {
+    entity.tick(frameStartTime, dt)
+  })
+
+  window.requestAnimationFrame(gameLoop)
+}
+
+window.requestAnimationFrame(gameLoop)
+
+  </script>
+</body>
+</html>

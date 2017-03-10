@@ -5,12 +5,14 @@
 </head>
 <body>
   <canvas id="canvas" width="600" height="480"></canvas>
-  <h1>Simple Game AI Test</h1>
+  <p>Simple Game AI Test</p>
   <p>Move the blue square using the arrow keys</p>
   <p>If the green square turns orange it is trying to reach you. If it turns red it is attacking.</p>
   <p>The red box represents the AI's zone in which it will look for the player.</p>
   <script>
 'use strict'
+
+const debug = true
 
 const canvas = document.getElementById('canvas')
 const ctx = canvas.getContext('2d')
@@ -73,6 +75,17 @@ const distance2d = (p1, p2) => {
   return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2))
 }
 
+const randomRange = (range) => {
+  return (Math.random() * (range[1] - range[0])) + range [0]
+}
+
+const AI_STATES = {
+  PATROLING: 'PATROLING',
+  THINKING: 'THINKING',
+  HUNTING: 'HUNTING',
+  ATTACKING: 'ATTACKING'
+}
+
 entities.push({
   name: 'ai',
   x: width / 2,
@@ -93,55 +106,141 @@ entities.push({
     range: 20
   },
   moveSpeed: 40,
-  nextThink: 0,
-  isAttacking: false,
-  tick: function(time, dt) {
-    // If player in zone, set the target to the player
-    if (this.player.x >= this.zone.min.x &&
-      this.player.y >= this.zone.min.y &&
-      this.player.x <= this.zone.max.x &&
-      this.player.y <= this.zone.max.y) {
-      this.target = this.player
-    } else if (!this.target || this.target === this.player || distance2d(this, this.target) < 1) {
-      // If we don't have a target
-      // Or if the player is the target but the player is not in the zone
-      // Or we have reached our target
-      // Set the target to a new random location
-      this.target = {
-        x: Math.floor(Math.random() * (this.zone.max.x - this.zone.min.x)) + this.zone.min.x,
-        y: Math.floor(Math.random() * (this.zone.max.y - this.zone.min.y)) + this.zone.min.y
-      }
-    }
-
-    // If the player is the target and we are close enough to attack, set our state to attacking
-    const distanceToTarget = distance2d(this, this.target)
-    if (this.target === this.player && distanceToTarget < this.weapon.range) {
-      this.isAttacking = true
-    } else {
-      this.isAttacking = false
-    }
-
-
-    // Move towards the target
-
+  simpleResponseTimeRange: [0.2, 0.3],
+  choiceResponseTimeRange: [0.4, 0.6],
+  stopThinkingTime: 0,
+  stateAfterThinking: AI_STATES.PATROLING,
+  state: AI_STATES.PATROLING,
+  moveTowardsTarget: function (dt) {
     // Get move direction as normalised vector values
+    const distanceToTarget = distance2d(this, this.target)
     const directionX = (this.target.x - this.x) / distanceToTarget
     const directionY = (this.target.y - this.y) / distanceToTarget
 
     this.x = Math.max(5, Math.min(width - 5, this.x + (directionX * this.moveSpeed * dt)))
     this.y = Math.max(5, Math.min(width - 5, this.y + (directionY * this.moveSpeed * dt)))
+  },
+  canSeePlayer: function () {
+    return (this.player.x >= this.zone.min.x &&
+      this.player.y >= this.zone.min.y &&
+      this.player.x <= this.zone.max.x &&
+      this.player.y <= this.zone.max.y)
+  },
+  tick: function(time, dt) {
+    switch (this.state) {
+      case AI_STATES.PATROLING:
+        // Look for player
+        if (this.canSeePlayer()) {
+          // If player found set target to player, and go to
+          // hunting via thinking
+          this.target = player
+          this.stopThinkingTime = time + randomRange(this.choiceResponseTimeRange)
+          this.stateAfterThinking = AI_STATES.HUNTING
+          this.state = AI_STATES.THINKING
+          if (debug) {
+            console.log(`Thinking for ${this.stopThinkingTime - time}s`)
+          }
+        } else if (!this.target || distance2d(this, this.target) < 1) {
+          // If we don't have a current patrol destination,
+          // or we have reached our patrol destination, set
+          // our target to a random destination, then go to
+          // patroling via thinking
+          this.target = {
+            x: randomRange([this.zone.min.x, this.zone.max.x]),
+            y: randomRange([this.zone.min.y, this.zone.max.y])
+          }
+          this.stopThinkingTime = time + randomRange(this.choiceResponseTimeRange)
+          this.stateAfterThinking = AI_STATES.PATROLING
+          this.state = AI_STATES.THINKING
+          if (debug) {
+            console.log(`Thinking for ${this.stopThinkingTime - time}s`)
+          }
+        } else {
+          // Move towards our patrol destination
+          this.moveTowardsTarget(dt)
+        }
+        break
+      case AI_STATES.THINKING:
+        // If we've thought about it for long enough, go to
+        // our next state.
+        if (time > this.stopThinkingTime) {
+          this.state = this.stateAfterThinking
+          if (debug) {
+            console.log(this.state)
+          }
+        }
+        // Otherwise keep thinking
+        break
+      case AI_STATES.HUNTING:
+        // Check we can still see the player
+        if (this.canSeePlayer()) {
+          if (distance2d(this, player) < this.weapon.range) {
+            // If they are close enough to attack
+            // Go to Attacking via Thinking
+            this.stopThinkingTime = time + randomRange(this.simpleResponseTimeRange)
+            this.stateAfterThinking = AI_STATES.ATTACKING
+            this.state = AI_STATES.THINKING
+            if (debug) {
+              console.log(`Thinking for ${this.stopThinkingTime - time}s`)
+            }
+          } else {
+            this.moveTowardsTarget(dt)
+          }
+        } else {
+          // Go to patrolling (don't even think about it)
+          this.target = null
+          this.state = AI_STATES.PATROLING
+          if (debug) {
+            console.log(this.state)
+          }
+        }
+        break
+      case AI_STATES.ATTACKING:
+        if (distance2d(this, player) < this.weapon.range) {
+          // TODO: Attack player
+        } else if (this.canSeePlayer()){
+          // Think about going back to Hunting
+          this.stopThinkingTime = time + randomRange(this.simpleResponseTimeRange)
+          this.stateAfterThinking = AI_STATES.HUNTING
+          this.state = AI_STATES.THINKING
+          if (debug) {
+            console.log(`Thinking for ${this.stopThinkingTime - time}s`)
+          }
+        } else {
+          // Go to patrolling (and don't even think about it)
+          this.target = null
+          this.state = AI_STATES.PATROLING
+          if (debug) {
+            console.log(this.state)
+          }
+        }
+        break
+      default:
+        console.error(`AI in Invalid State: ${this.state}`)
+        break
+    }
 
     // Draw Zone
     ctx.strokeStyle = '#ff0000'
     ctx.strokeRect(this.zone.min.x, this.zone.min.y, this.zone.max.x - this.zone.min.x, this.zone.max.y - this.zone.min.y)
 
     // Draw AI
-    if (this.isAttacking) {
-      ctx.fillStyle = '#ff0000'
-    } else if (this.target === this.player) {
-      ctx.fillStyle = '#ff4444'
-    } else {
-      ctx.fillStyle = '#00cc00'
+    switch (this.state) {
+      case AI_STATES.PATROLING:
+        ctx.fillStyle = '#00cc00'
+        break
+      case AI_STATES.THINKING:
+        ctx.fillStyle = '#9400D3'
+        break
+      case AI_STATES.HUNTING:
+        ctx.fillStyle = '#ff4444'
+        break
+      case AI_STATES.ATTACKING:
+        ctx.fillStyle = '#ff0000'
+        break
+      default:
+        console.error(`AI in Invalid State: ${this.state}`)
+        break
     }
     ctx.fillRect(this.x - 5, this.y - 5, 10, 10)
   }
